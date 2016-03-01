@@ -77,7 +77,10 @@
            java.lang.management.ManagementFactory
            [javax.management Attribute AttributeList DynamicMBean MBeanInfo
             ObjectName RuntimeMBeanException MBeanAttributeInfo MBeanServerConnection]
-           [javax.management.remote JMXConnectorFactory JMXServiceURL]))
+           [javax.management.remote JMXConnectorFactory JMXServiceURL]
+           ;; These two entries introduced for the legacy RMIAdaptor:
+           [java.util Properties]
+           [javax.naming Context InitialContext]))
 
 (def ^{:dynamic true
        :doc "The connection to be used for JMX ops. Defaults to the local process."
@@ -180,6 +183,27 @@
               (map (fn [[attr-name value]] (build-attribute-info attr-name value))
                    attr-map)))
 
+;;
+;; Legacy  solution for  JBoss  5.   In Java  the  result of  (.lookup
+;; context "jmx/rmi/RMIAdaptor") needs to  cast to RMIAdaptor and thus
+;; would  also  require  the   corresponding  import  up  there.   The
+;; RMIAdaptor is  only available  from JBoss  JARs which  are packaged
+;; suboptimally  (try installing  jboss-as-client artifact  to get  an
+;; idea).   Clojure  seems  to  deal  with  RMIAdaptor  duck-typed  as
+;; MBeanServerConnection   without  knowing   about   it  at   compile
+;; time. Nevertheless, a selection of JBoss jars from the jboss/client
+;; directory  is needed  at runtime  anyway  if the  legacy branch  is
+;; chosen.   It will  be  responsibility of  the  library user.   This
+;; package is not going to declare  a dependency on or supply a bundle
+;; of those JBoss 5 jars. Also  note that the RMIAdapter offers access
+;; to JBoss MBeans, not to the platform MBeans.
+;;
+(defn make-initial-context [url]
+  (let [env (System/getProperties)]
+    (.put env Context/INITIAL_CONTEXT_FACTORY "org.jnp.interfaces.NamingContextFactory")
+    (.put env Context/PROVIDER_URL url)
+    (InitialContext. env)))
+
 (defmacro with-connection
   "Execute body with a JMX connection created based on opts. opts can include [default]:
 
@@ -194,11 +218,21 @@
   `(let [opts# ~opts
          env# (get opts# :environment {})
          opts# (dissoc opts# :environment)]
-     (with-open [connector# (javax.management.remote.JMXConnectorFactory/connect
-                             (JMXServiceURL. (:url opts# (jmx-url opts#)))
-                             env#)]
-       (binding [*connection* (.getMBeanServerConnection connector#)]
-         ~@body))))
+     ;; FIXME: When URL  is specified and starts with  jnp:// take the
+     ;; legacy branch (can such URL be a valid JMXServiceURL?):
+     (if (not (.startsWith (:url opts#) "jnp://"))
+       ;; Original branch:
+       (with-open [connector# (javax.management.remote.JMXConnectorFactory/connect
+                               (JMXServiceURL. (:url opts# (jmx-url opts#)))
+                               env#)]
+         (binding [*connection* (.getMBeanServerConnection connector#)]
+           ~@body))
+       ;; Legacy branch. InitialContext does  support closing but what
+       ;; about the RMIAdaptor?
+       (with-open [context# (make-initial-context (:url opts#))]
+         ;; In Java code this is cast to (RMIAdaptor):
+         (binding [*connection* (.lookup context# "jmx/rmi/RMIAdaptor")]
+           ~@body)))))
 
 (defn ^{:skip-wiki true} mbean-info [n]
   (.getMBeanInfo *connection* (as-object-name n)))
