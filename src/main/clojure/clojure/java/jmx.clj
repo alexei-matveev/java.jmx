@@ -199,9 +199,10 @@
 ;; to JBoss MBeans, not to the platform MBeans.
 ;;
 (defn make-initial-context [url]
-  (let [env (System/getProperties)]
-    (.put env Context/INITIAL_CONTEXT_FACTORY "org.jnp.interfaces.NamingContextFactory")
-    (.put env Context/PROVIDER_URL url)
+  (let [env (doto (System/getProperties)
+              (.put Context/PROVIDER_URL url)
+              (.put Context/INITIAL_CONTEXT_FACTORY
+                    "org.jnp.interfaces.NamingContextFactory"))]
     (InitialContext. env)))
 
 (defmacro with-connection
