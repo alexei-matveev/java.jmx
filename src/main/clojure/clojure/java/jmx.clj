@@ -227,8 +227,9 @@
                                env#)]
          (binding [*connection* (.getMBeanServerConnection connector#)]
            ~@body))
-       ;; Legacy branch. InitialContext does  support closing but what
-       ;; about the RMIAdaptor?
+       ;; Legacy branch. InitialContext does support closing. The
+       ;; RMIAdaptor does not seem to. Even though it implements
+       ;; Remote > RMIConnection > Closeable (FIXME: ?):
        (with-open [context# (make-initial-context (:url opts#))]
          ;; In Java code this is cast to (RMIAdaptor):
          (binding [*connection* (.lookup context# "jmx/rmi/RMIAdaptor")]
